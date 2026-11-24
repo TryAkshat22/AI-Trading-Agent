@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -25,98 +26,48 @@ class DecisionExecutionCoordinatorError(Exception):
 class MissingDecisionSourceSessionError(
     DecisionExecutionCoordinatorError
 ):
-    """
-    Raised when an actionable decision does not identify
-    the completed market session that produced it.
-    """
+    """An actionable decision has no completed source session."""
 
 
 class MissingDecisionRunIdError(
     DecisionExecutionCoordinatorError
 ):
-    """
-    Raised when an actionable decision has no explicit
-    persisted decision-data lineage.
-    """
+    """An actionable decision has no persisted data lineage."""
 
 
 class MissingModelVersionError(
     DecisionExecutionCoordinatorError
 ):
-    """
-    Raised when an actionable decision has no model version.
-    """
+    """An actionable decision has no model version."""
 
 
 class InvalidApprovedDecisionError(
     DecisionExecutionCoordinatorError
 ):
-    """
-    Raised when a decision claims to be approved but is
-    missing the side or quantity required to create an order.
-    """
+    """An approved decision has invalid order details."""
 
 
 @dataclass(frozen=True)
 class CoordinatedDecision:
-    """
-    Result of attempting to convert a TradeDecision
-    into a persisted PENDING order.
-
-    prepared_order is None for decisions that should
-    not create an order.
-    """
-
     decision: TradeDecision
-
     prepared_order: PreparedOrder | None
-
-    validated_timestamp: (
-        ValidatedDecisionTimestamp | None
-    )
+    validated_timestamp: ValidatedDecisionTimestamp | None
 
     @property
-    def order_created(
-        self,
-    ) -> bool:
-
-        return (
-            self.prepared_order
-            is not None
-        )
+    def order_created(self) -> bool:
+        return self.prepared_order is not None
 
 
 class DecisionExecutionCoordinator:
     """
-    Safe bridge between DecisionPipeline and
-    ExecutionService.
+    Convert approved decisions into persisted PENDING orders.
 
-    Responsibilities:
+    A real ExecutionService must provide a scheduler.
+    Calendar agreement is checked before persistence.
 
-    1. Never create orders for non-approved decisions.
-
-    2. Require explicit decision-data lineage.
-
-    3. Require a model version.
-
-    4. Validate the decision timestamp against the
-       signal's completed source session.
-
-    5. Verify the timestamp validator and execution
-       scheduler agree on the next execution session.
-
-    6. Persist the approved order through
-       ExecutionService.prepare_order().
-
-    The coordinator does NOT:
-        - calculate signals
-        - size positions
-        - perform risk calculations
-        - execute fills
-        - fetch market data
-
-    Those responsibilities remain in their existing
-    modules.
+    Older test fakes without a scheduler retain their
+    existing behavior; the post-preparation check still
+    verifies the plan they return.
     """
 
     ACTIONABLE_STATUSES = frozenset(
@@ -129,15 +80,9 @@ class DecisionExecutionCoordinator:
     def __init__(
         self,
         execution_service: ExecutionService,
-        timestamp_validator: (
-            DecisionTimestampValidator | None
-        ) = None,
+        timestamp_validator: DecisionTimestampValidator | None = None,
     ) -> None:
-
-        self.execution_service = (
-            execution_service
-        )
-
+        self.execution_service = execution_service
         self.timestamp_validator = (
             timestamp_validator
             if timestamp_validator is not None
@@ -152,35 +97,15 @@ class DecisionExecutionCoordinator:
         model_version: str | None,
         order_id: str | None = None,
     ) -> CoordinatedDecision:
-        """
-        Convert one already-generated TradeDecision
-        into a persisted order when appropriate.
 
-        Non-actionable outcomes return without creating
-        or persisting an order.
-        """
-
-        # -------------------------------------------------
-        # NON-ACTIONABLE DECISIONS
-        # -------------------------------------------------
-
-        if (
-            decision.status
-            not in self.ACTIONABLE_STATUSES
-        ):
+        if decision.status not in self.ACTIONABLE_STATUSES:
             return CoordinatedDecision(
                 decision=decision,
                 prepared_order=None,
                 validated_timestamp=None,
             )
 
-        # -------------------------------------------------
-        # ACTIONABLE DECISION VALIDATION
-        # -------------------------------------------------
-
-        source_session = (
-            decision.signal.source_session
-        )
+        source_session = decision.signal.source_session
 
         if source_session is None:
             raise MissingDecisionSourceSessionError(
@@ -217,97 +142,92 @@ class DecisionExecutionCoordinator:
                 "Approved decision has no order side."
             )
 
-        if (
-            decision.quantity is None
-            or decision.quantity <= 0
-        ):
+        if decision.quantity is None or decision.quantity <= 0:
             raise InvalidApprovedDecisionError(
-                "Approved decision must have a "
-                "positive quantity."
+                "Approved decision must have a positive quantity."
             )
 
-        # -------------------------------------------------
-        # STATUS / SIDE CONSISTENCY
-        # -------------------------------------------------
-
         if (
-            decision.status
-            == DecisionStatus.BUY_APPROVED
+            decision.status == DecisionStatus.BUY_APPROVED
             and decision.side != OrderSide.BUY
         ):
             raise InvalidApprovedDecisionError(
-                "BUY_APPROVED decision must use "
-                "OrderSide.BUY."
+                "BUY_APPROVED decision must use OrderSide.BUY."
             )
 
         if (
-            decision.status
-            == DecisionStatus.EXIT_APPROVED
+            decision.status == DecisionStatus.EXIT_APPROVED
             and decision.side != OrderSide.SELL
         ):
             raise InvalidApprovedDecisionError(
-                "EXIT_APPROVED decision must use "
-                "OrderSide.SELL."
+                "EXIT_APPROVED decision must use OrderSide.SELL."
             )
 
-        # -------------------------------------------------
-        # ANTI-LOOKAHEAD TIMESTAMP VALIDATION
-        # -------------------------------------------------
-
-        validated_timestamp = (
-            self.timestamp_validator.validate(
-                source_session=source_session,
-                decision_timestamp=(
-                    decision_timestamp
-                ),
-            )
+        validated_timestamp = self.timestamp_validator.validate(
+            source_session=source_session,
+            decision_timestamp=decision_timestamp,
         )
 
-        # -------------------------------------------------
-        # ORDER PREPARATION
-        # -------------------------------------------------
-
-        prepared = (
-            self.execution_service.prepare_order(
-                ticker=(
-                    decision.signal.ticker
-                ),
-                side=decision.side,
-                quantity=decision.quantity,
-                signal_timestamp=(
-                    validated_timestamp
-                    .decision_timestamp_utc
-                ),
-                decision_run_id=(
-                    decision_run_id
-                ),
-                model_version=(
-                    model_version
-                ),
-                order_id=order_id,
-            )
+        # Real services must expose the scheduler used by
+        # prepare_order(). Legacy test fakes may omit it.
+        scheduler = getattr(
+            self.execution_service,
+            "scheduler",
+            None,
         )
 
-        # -------------------------------------------------
-        # CROSS-CHECK CALENDAR AGREEMENT
-        # -------------------------------------------------
+        if scheduler is None:
+            if isinstance(
+                self.execution_service,
+                ExecutionService,
+            ):
+                raise DecisionExecutionCoordinatorError(
+                    "ExecutionService has no scheduler. "
+                    "No order was prepared."
+                )
+        else:
+            # Calendar agreement BEFORE order persistence.
+            expected_plan = scheduler.create_plan(
+                validated_timestamp.decision_timestamp_utc
+            )
 
+            if (
+                expected_plan.execution_session
+                != validated_timestamp.next_execution_session
+            ):
+                raise DecisionExecutionCoordinatorError(
+                    "Decision timestamp validator and execution "
+                    "scheduler disagree on the next execution "
+                    "session. No order was prepared."
+                )
+
+        prepared = self.execution_service.prepare_order(
+            ticker=decision.signal.ticker,
+            side=decision.side,
+            quantity=decision.quantity,
+            signal_timestamp=(
+                validated_timestamp.decision_timestamp_utc
+            ),
+            decision_run_id=decision_run_id,
+            model_version=model_version,
+            order_id=order_id,
+        )
+
+        # Defensive consistency check. If this fails, an
+        # order may already have been persisted; inspect
+        # it before retrying.
         if (
-            prepared.execution_plan
-            .execution_session
-            != validated_timestamp
-            .next_execution_session
+            prepared.execution_plan.execution_session
+            != validated_timestamp.next_execution_session
         ):
             raise DecisionExecutionCoordinatorError(
-                "Decision timestamp validator and "
-                "execution scheduler disagree on "
-                "the next execution session."
+                "Prepared order's execution session differs "
+                "from the validated execution session. "
+                "Inspect the persisted order before retrying."
             )
 
         return CoordinatedDecision(
             decision=decision,
             prepared_order=prepared,
-            validated_timestamp=(
-                validated_timestamp
-            ),
+            validated_timestamp=validated_timestamp,
         )
