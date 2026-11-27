@@ -6,6 +6,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from model2_web.data import load_local,load_demo,latest
 from model2_web.analytics import PERIODS,series,risk,positions,transactions
+from model2_intelligence.service import Intelligence
 
 st.set_page_config(page_title='Model 2 | Portfolio Intelligence',page_icon='📈',layout='wide')
 st.markdown('''<style>
@@ -20,7 +21,7 @@ try:
 except Exception as e: st.error(f'Data unavailable: {e}'); st.stop()
 row=latest(data)
 if not row: st.warning('No saved valuations'); st.stop()
-trade_path=Path(path).with_name('trading_agent_model2.db') if mode=='local' else None
+trade_path=Path(os.environ.get('PAPER_TRADING_MODEL2_DB_PATH') or Path(path).with_name('trading_agent_model2.db')) if mode=='local' else None
 st.sidebar.title('MODEL 2')
 st.sidebar.caption('PORTFOLIO INTELLIGENCE')
 page=st.sidebar.radio('Workspace',['Overview','Portfolio','Markets','Signals','Analytics','Transactions','AI Analyst','System Health'],label_visibility='collapsed')
@@ -80,7 +81,12 @@ elif page=='Markets':
 elif page=='Signals':
     st.info('Strategy signal scan is not automatically invoked by the web app. This page will show persisted signal rankings once a read-only signal export is available. No orders are created here.')
 elif page=='Analytics':
-    st.subheader('Historical risk'); s=series(data,'ALL',row['session_date']); r=risk(s); a,b,c=st.columns(3); a.metric('Observed max drawdown',f"{r['drawdown']:.2%}" if r['drawdown'] is not None else 'N/A'); b.metric('Annualized volatility',f"{r['volatility']:.2%}" if r['volatility'] is not None else 'N/A'); c.metric('Adjacent daily returns',r['n_returns']); st.caption('Volatility requires at least 20 adjacent daily returns; drawdown uses observed closes and may understate losses during missing sessions.'); chart('ALL'); st.info('Benchmark comparison and risk-adjusted ratios require aligned benchmark and risk-free data; not yet connected.')
+    st.subheader('Historical risk'); s=series(data,'ALL',row['session_date']); r=risk(s); a,b,c=st.columns(3); a.metric('Observed max drawdown',f"{r['drawdown']:.2%}" if r['drawdown'] is not None else 'N/A'); b.metric('Annualized volatility',f"{r['volatility']:.2%}" if r['volatility'] is not None else 'N/A'); c.metric('Adjacent daily returns',r['n_returns']); st.caption('Volatility requires at least 20 adjacent daily returns; drawdown uses observed closes and may understate losses during missing sessions.'); chart('ALL'); 
+    try:
+        intel=Intelligence.from_env(); advanced=intel.get_risk_metrics()['metrics']; bench=intel.get_benchmark()
+        st.subheader('Risk-adjusted returns'); a,b=st.columns(2); a.metric('Sharpe',f"{advanced['sharpe']:.3f}" if advanced['sharpe'] is not None else 'N/A'); b.metric('Sortino',f"{advanced['sortino']:.3f}" if advanced['sortino'] is not None else 'N/A'); st.caption(f"Annual risk-free assumption: {advanced['annual_rf']} (decimal rate; None means not configured)")
+        st.subheader('Benchmark comparison'); st.write(bench)
+    except Exception as e: st.warning(f'Advanced analytics unavailable: {e}')
 elif page=='Transactions':
     if mode=='local':
         try: st.dataframe(pd.DataFrame(transactions(trade_path)),hide_index=True,use_container_width=True)
@@ -88,14 +94,31 @@ elif page=='Transactions':
     else: st.info('No synthetic trade ledger supplied.')
 elif page=='AI Analyst':
     st.info('Local scripted analyst · Not an LLM. GitHub Copilot profile is separate; authenticated remote access is not configured.')
-    q=st.selectbox('Ask about your account',['Portfolio summary','Historical performance','Risk and coverage'])
+    q=st.selectbox('Ask about your account',['Portfolio summary','Historical performance','Risk and coverage','Benchmark comparison'])
     if q=='Portfolio summary': st.write(f"Saved equity {money(row['total_equity'])}, cash {money(row['cash'])}, {row['open_positions']} open positions. Recorded {stamp(row['recorded_at_utc'])}.")
     elif q=='Historical performance': chart('ALL')
-    else: st.write(risk(series(data,'ALL',row['session_date'])))
+    else:
+        try:
+            intel=Intelligence.from_env(); st.write(intel.get_benchmark() if q=='Benchmark comparison' else intel.get_risk_metrics())
+        except Exception as e: st.warning(f'Analysis unavailable: {e}')
     st.markdown('[Open GitHub Copilot Agents](https://github.com/copilot/agents)')
 else:
     metrics(); st.write(f"Daily records: {len(data['daily'])} | Intraday records: {len(data['intraday'])}")
     st.caption('Saved valuation timestamps are evidence of data collection, not proof of task health.')
+    if mode=='local':
+        try:
+            ops=Intelligence.from_env().get_system_health().get('operations') or {}
+            st.subheader('Recorded task outcomes')
+            outcomes=ops.get('task_outcomes',{})
+            st.dataframe(pd.DataFrame([{'Task':k,'Latest status':v['status'],'Last run':(v.get('last_outcome') or {}).get('finished_at'),'Last non-skip':(v.get('last_non_skip') or {}).get('status')} for k,v in outcomes.items()]),hide_index=True)
+            st.subheader('Closing valuation coverage')
+            st.write(ops.get('closing_coverage',{'status':'unavailable'}))
+            st.subheader('Unfilled orders past execution window')
+            if 'unfilled_past_window' not in ops: st.warning('Operational audit unavailable.')
+            elif ops['unfilled_past_window']: st.dataframe(pd.DataFrame(ops['unfilled_past_window']),hide_index=True)
+            else: st.info('No pending or expired orders found past cutoff.')
+            st.caption(ops.get('note',''))
+        except Exception as exc: st.warning(f'Operational audit unavailable: {exc}')
     if mode=='local' and st.button('Inspect Windows scheduled tasks'):
         a=local_agent_data()
         if a:
