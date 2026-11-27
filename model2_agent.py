@@ -16,6 +16,10 @@ from model2_agent_data import (
     order_explanation,
     session_summary,
     system_snapshot,
+    market_movers,
+    portfolio_allocation,
+    equity_history,
+    performance_history,
 )
 
 
@@ -235,10 +239,77 @@ def answer(prompt: str) -> AgentReply:
     if any(
         phrase in text
         for phrase in (
+            "top movers",
+            "movers",
+            "gainers",
+            "losers",
+            "market movers",
+            "what is moving",
+        )
+    ):
+        return AgentReply(
+            kind="movers",
+            title="Market Movers",
+            text="Latest Model 2 universe moves versus the prior daily close.",
+            data=market_movers(limit=5),
+            suggestions=(
+                "Show strongest signals",
+                "Show portfolio allocation",
+            ),
+        )
+
+    if any(
+        phrase in text
+        for phrase in (
+            "allocation",
+            "portfolio weight",
+            "portfolio weights",
+            "position weights",
+            "how is my portfolio split",
+        )
+    ):
+        return AgentReply(
+            kind="allocation",
+            title="Portfolio Allocation",
+            text="Current portfolio weights including cash.",
+            data=portfolio_allocation(),
+            suggestions=(
+                "Show portfolio",
+                "Show performance graph",
+            ),
+        )
+
+    if text.upper() in {"1D", "1W", "1M", "3M", "YTD", "ALL"} or any(
+        phrase in text
+        for phrase in (
+            "performance graph",
+            "equity curve",
+            "performance chart",
+            "portfolio chart",
+            "graph my portfolio",
+        )
+    ):
+        match = re.search(r"\b(1d|1w|1m|3m|ytd|all)\b", text)
+        period = match.group(1).upper() if match else "ALL"
+        return AgentReply(
+            kind="equity",
+            title=f"Portfolio Equity Curve | {period}",
+            text="Saved portfolio valuations.",
+            data=performance_history(period),
+            suggestions=(
+                "Show portfolio allocation",
+                "Show latest trades",
+            ),
+        )
+
+    if any(
+        phrase in text
+        for phrase in (
             "candidate",
             "signal",
             "strongest",
             "best opportunities",
+            "best investments",
             "best stocks",
             "buy ideas",
             "trade ideas",

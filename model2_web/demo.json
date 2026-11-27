@@ -1,0 +1,156 @@
+{
+  "mode": "demo",
+  "notice": "Entirely synthetic demonstration; not actual trading results.",
+  "daily": [
+    {
+      "session_date": "2026-01-05",
+      "starting_cash": "10000",
+      "cash": "4000",
+      "market_value": "6000",
+      "total_equity": "10000",
+      "realized_pnl": "0",
+      "total_return_pct": "0.0",
+      "open_positions": 5,
+      "recorded_at_utc": "2026-01-05T21:30:00+00:00",
+      "source": "synthetic close"
+    },
+    {
+      "session_date": "2026-01-06",
+      "starting_cash": "10000",
+      "cash": "4000",
+      "market_value": "6035",
+      "total_equity": "10035",
+      "realized_pnl": "0",
+      "total_return_pct": "0.35",
+      "open_positions": 5,
+      "recorded_at_utc": "2026-01-06T21:30:00+00:00",
+      "source": "synthetic close"
+    },
+    {
+      "session_date": "2026-01-07",
+      "starting_cash": "10000",
+      "cash": "4000",
+      "market_value": "5980",
+      "total_equity": "9980",
+      "realized_pnl": "0",
+      "total_return_pct": "-0.2",
+      "open_positions": 5,
+      "recorded_at_utc": "2026-01-07T21:30:00+00:00",
+      "source": "synthetic close"
+    },
+    {
+      "session_date": "2026-01-08",
+      "starting_cash": "10000",
+      "cash": "4000",
+      "market_value": "6080",
+      "total_equity": "10080",
+      "realized_pnl": "0",
+      "total_return_pct": "0.8",
+      "open_positions": 5,
+      "recorded_at_utc": "2026-01-08T21:30:00+00:00",
+      "source": "synthetic close"
+    },
+    {
+      "session_date": "2026-01-09",
+      "starting_cash": "10000",
+      "cash": "4000",
+      "market_value": "6120",
+      "total_equity": "10120",
+      "realized_pnl": "0",
+      "total_return_pct": "1.2",
+      "open_positions": 5,
+      "recorded_at_utc": "2026-01-09T21:30:00+00:00",
+      "source": "synthetic close"
+    },
+    {
+      "session_date": "2026-01-12",
+      "starting_cash": "10000",
+      "cash": "4000",
+      "market_value": "6090",
+      "total_equity": "10090",
+      "realized_pnl": "0",
+      "total_return_pct": "0.9",
+      "open_positions": 5,
+      "recorded_at_utc": "2026-01-12T21:30:00+00:00",
+      "source": "synthetic close"
+    },
+    {
+      "session_date": "2026-01-13",
+      "starting_cash": "10000",
+      "cash": "4000",
+      "market_value": "6180",
+      "total_equity": "10180",
+      "realized_pnl": "0",
+      "total_return_pct": "1.8",
+      "open_positions": 5,
+      "recorded_at_utc": "2026-01-13T21:30:00+00:00",
+      "source": "synthetic close"
+    },
+    {
+      "session_date": "2026-01-14",
+      "starting_cash": "10000",
+      "cash": "4000",
+      "market_value": "6210",
+      "total_equity": "10210",
+      "realized_pnl": "0",
+      "total_return_pct": "2.1",
+      "open_positions": 5,
+      "recorded_at_utc": "2026-01-14T21:30:00+00:00",
+      "source": "synthetic close"
+    }
+  ],
+  "intraday": [
+    {
+      "session_date": "2026-01-15",
+      "starting_cash": "10000",
+      "cash": "4000",
+      "market_value": "6215",
+      "total_equity": "10215",
+      "realized_pnl": "0",
+      "total_return_pct": "2.15",
+      "open_positions": 5,
+      "recorded_at_utc": "2026-01-15T15:00:00+00:00",
+      "source": "intraday",
+      "bucket_utc": "2026-01-15T15:00:00+00:00"
+    },
+    {
+      "session_date": "2026-01-15",
+      "starting_cash": "10000",
+      "cash": "4000",
+      "market_value": "6200",
+      "total_equity": "10200",
+      "realized_pnl": "0",
+      "total_return_pct": "2.0",
+      "open_positions": 5,
+      "recorded_at_utc": "2026-01-15T15:15:00+00:00",
+      "source": "intraday",
+      "bucket_utc": "2026-01-15T15:15:00+00:00"
+    },
+    {
+      "session_date": "2026-01-15",
+      "starting_cash": "10000",
+      "cash": "4000",
+      "market_value": "6245",
+      "total_equity": "10245",
+      "realized_pnl": "0",
+      "total_return_pct": "2.45",
+      "open_positions": 5,
+      "recorded_at_utc": "2026-01-15T15:30:00+00:00",
+      "source": "intraday",
+      "bucket_utc": "2026-01-15T15:30:00+00:00"
+    },
+    {
+      "session_date": "2026-01-15",
+      "starting_cash": "10000",
+      "cash": "4000",
+      "market_value": "6260",
+      "total_equity": "10260",
+      "realized_pnl": "0",
+      "total_return_pct": "2.6",
+      "open_positions": 5,
+      "recorded_at_utc": "2026-01-15T16:00:00+00:00",
+      "source": "intraday",
+      "bucket_utc": "2026-01-15T16:00:00+00:00"
+    }
+  ]
+}

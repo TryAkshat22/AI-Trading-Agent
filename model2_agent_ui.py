@@ -12,10 +12,68 @@ from rich.table import Table
 from rich.text import Text
 
 from model2_agent import AgentReply, answer
-from model2_agent_data import system_snapshot
+from model2_agent_data import brokerage_snapshot, system_snapshot
 
 
 console = Console()
+
+
+SPARK_CHARS = "▁▂▃▄▅▆▇█"
+
+
+def sparkline(values: list[Any], width: int = 38) -> str:
+    if not values:
+        return "—"
+
+    nums = [float(value) for value in values]
+
+    if len(nums) > width:
+        step = (len(nums) - 1) / (width - 1) if width > 1 else 0
+        nums = [
+            nums[min(int(index * step), len(nums) - 1)]
+            for index in range(width)
+        ]
+
+    low = min(nums)
+    high = max(nums)
+
+    if high == low:
+        return SPARK_CHARS[3] * len(nums)
+
+    result = []
+    for value in nums:
+        ratio = (value - low) / (high - low)
+        index = min(
+            len(SPARK_CHARS) - 1,
+            int(ratio * (len(SPARK_CHARS) - 1)),
+        )
+        result.append(SPARK_CHARS[index])
+
+    return "".join(result)
+
+
+def allocation_bar(weight: Any, width: int = 18) -> str:
+    pct = max(0.0, min(100.0, float(weight)))
+    filled = round(width * pct / 100)
+    return "█" * filled + "░" * (width - filled)
+
+
+def format_task_time(value: Any) -> str:
+    if value in (None, "", "null"):
+        return "—"
+
+    text = str(value)
+
+    if text.startswith("/Date("):
+        try:
+            milliseconds = int(text.split("(")[1].split(")")[0])
+            from datetime import datetime
+            dt = datetime.fromtimestamp(milliseconds / 1000)
+            return dt.strftime("%a %I:%M %p")
+        except Exception:
+            return text
+
+    return text
 
 
 def money(value: Any) -> str:
@@ -57,7 +115,7 @@ def print_banner() -> None:
 
 def print_home() -> None:
     try:
-        snapshot = system_snapshot()
+        snapshot = brokerage_snapshot()
     except Exception as exc:
         console.print(
             Panel(
@@ -71,6 +129,9 @@ def print_home() -> None:
     portfolio = snapshot["portfolio"]
     collector = snapshot["collector"]
     tasks = snapshot["tasks"]
+    movers = snapshot["movers"]
+    history = snapshot["equity_history"]
+    candidates = snapshot["candidates"]
 
     metrics = Table(
         box=box.ROUNDED,
@@ -78,7 +139,7 @@ def print_home() -> None:
         expand=True,
         padding=(0, 2),
     )
-    for _ in range(4):
+    for _ in range(5):
         metrics.add_column(justify="center")
 
     pnl_style = "green" if portfolio["total_pnl"] >= 0 else "red"
@@ -88,9 +149,106 @@ def print_home() -> None:
         f"[dim]CASH[/dim]\n[bold]{money(portfolio['cash'])}[/bold]",
         f"[dim]TOTAL P/L[/dim]\n[{pnl_style}][bold]"
         f"{money(portfolio['total_pnl'])}[/bold][/{pnl_style}]",
-        f"[dim]OPEN POSITIONS[/dim]\n[bold]{len(portfolio['positions'])}[/bold]",
+        f"[dim]RETURN[/dim]\n[{pnl_style}][bold]"
+        f"{percent(portfolio['total_return'])}[/bold][/{pnl_style}]",
+        f"[dim]POSITIONS[/dim]\n[bold]{len(portfolio['positions'])}[/bold]",
     )
     console.print(metrics)
+
+    if history:
+        values = [row["equity"] for row in history]
+        first = values[0]
+        last = values[-1]
+        curve_style = "green" if last >= first else "red"
+
+        console.print(
+            Panel(
+                f"[{curve_style}]{sparkline(values)}[/{curve_style}]\n"
+                f"[dim]{history[0]['session']}[/dim]  "
+                f"{money(first)}  →  [bold]{money(last)}[/bold]  "
+                f"[dim]{history[-1]['session']}[/dim]",
+                title="Portfolio Performance",
+                border_style=curve_style,
+            )
+        )
+
+    console.print(Text(snapshot["performance"]["message"], style="yellow" if snapshot["performance"]["missing"] else "dim"))
+
+    left = Table(box=box.ROUNDED, expand=True)
+    left.add_column("Top Gainers", style="bold green")
+    left.add_column("Price", justify="right")
+    left.add_column("Move", justify="right")
+
+    for row in movers["gainers"][:5]:
+        left.add_row(
+            row["ticker"],
+            money(row["price"]),
+            f"[green]+{percent(row['change_pct'])}[/green]",
+        )
+
+    right = Table(box=box.ROUNDED, expand=True)
+    right.add_column("Top Losers", style="bold red")
+    right.add_column("Price", justify="right")
+    right.add_column("Move", justify="right")
+
+    for row in movers["losers"][:5]:
+        right.add_row(
+            row["ticker"],
+            money(row["price"]),
+            f"[red]{percent(row['change_pct'])}[/red]",
+        )
+
+    movers_grid = Table.grid(expand=True)
+    movers_grid.add_column(ratio=1)
+    movers_grid.add_column(ratio=1)
+    movers_grid.add_row(left, right)
+
+    breadth = (
+        f"[green]{movers['positive']} up[/green]  •  "
+        f"[red]{movers['negative']} down[/red]  •  "
+        f"{movers['flat']} flat"
+    )
+
+    console.print(
+        Panel(
+            movers_grid,
+            title="Market Movers",
+            subtitle=breadth,
+            border_style="blue",
+        )
+    )
+
+    console.print(Text(movers["message"], style="dim"))
+
+    if candidates["candidates"]:
+        candidate_table = Table(
+            box=box.SIMPLE,
+            expand=True,
+            show_edge=False,
+        )
+        candidate_table.add_column("#", justify="right", width=3)
+        candidate_table.add_column("Best Opportunities", style="bold bright_cyan")
+        candidate_table.add_column("Momentum", justify="right")
+        candidate_table.add_column("Price", justify="right")
+        candidate_table.add_column("Group")
+
+        for row in candidates["candidates"][:5]:
+            candidate_table.add_row(
+                str(row["rank"]),
+                row["ticker"],
+                percent(row["momentum"]),
+                money(row["close"]),
+                row["group"],
+            )
+
+        console.print(
+            Panel(
+                candidate_table,
+                title="Model 2 Opportunities",
+                subtitle="signal ranking, not investment advice",
+                border_style="bright_cyan",
+            )
+        )
 
     status = Table(
         box=box.SIMPLE_HEAVY,
@@ -101,21 +259,18 @@ def print_home() -> None:
     status.add_column("Status", width=16)
     status.add_column("Detail")
 
-    collector_detail = (
-        f"{collector['ticker_count']} tickers • "
-        f"{collector['age_seconds']}s old"
-    )
-
     status.add_row(
         "Intraday Collector",
         status_badge(collector["healthy"]),
-        collector_detail,
+        f"{collector['ticker_count']} tickers • {collector['age_seconds']}s old",
     )
 
     for key, label in (
         ("decision", "Decision Engine"),
         ("execution", "Guarded Execution"),
         ("expiry", "Stale Cleanup"),
+        ("equity_intraday", "Intraday Equity"),
+        ("equity_daily", "Daily Equity"),
     ):
         item = tasks.get(key)
 
@@ -133,7 +288,7 @@ def print_home() -> None:
         status.add_row(
             label,
             status_badge(ok, "READY", "CHECK"),
-            f"Next: {item.get('NextRunTime')}",
+            f"Next: {format_task_time(item.get('NextRunTime'))}",
         )
 
     console.print(status)
@@ -141,17 +296,17 @@ def print_home() -> None:
     console.print(
         Panel(
             "[bold]Ask naturally[/bold]\n"
-            "[bright_cyan]›[/bright_cyan] How is the agent doing?\n"
+            "[bright_cyan]›[/bright_cyan] Show top movers\n"
+            "[bright_cyan]›[/bright_cyan] What are the best investments?\n"
+            "[bright_cyan]›[/bright_cyan] Show portfolio allocation\n"
+            "[bright_cyan]›[/bright_cyan] Show performance graph (1D, 1W, 1M, 3M, YTD, ALL)\n"
             "[bright_cyan]›[/bright_cyan] What do I currently own?\n"
-            "[bright_cyan]›[/bright_cyan] Why was HON rejected?\n"
-            "[bright_cyan]›[/bright_cyan] What happened today?\n"
-            "[bright_cyan]›[/bright_cyan] Show the strongest signals.\n\n"
+            "[bright_cyan]›[/bright_cyan] Why was HON rejected?\n\n"
             "[dim]help  •  refresh  •  clear  •  exit[/dim]",
             title="Conversation",
             border_style="blue",
         )
     )
-
 
 def print_suggestions(reply: AgentReply) -> None:
     if not reply.suggestions:
@@ -353,7 +508,7 @@ def render(reply: AgentReply) -> None:
                     key,
                     str(item.get("State")),
                     str(item.get("LastTaskResult")),
-                    str(item.get("NextRunTime")),
+                    format_task_time(item.get("NextRunTime")),
                 )
 
         console.print(task_table)
@@ -413,6 +568,107 @@ def render(reply: AgentReply) -> None:
         )
         if reply.data:
             console.print(table_rejections(reply.data))
+        print_suggestions(reply)
+        return
+
+    if reply.kind == "movers":
+        data = reply.data
+        grid = Table.grid(expand=True)
+        grid.add_column(ratio=1)
+        grid.add_column(ratio=1)
+
+        gainers = Table(box=box.ROUNDED, expand=True)
+        gainers.add_column("Gainer", style="bold green")
+        gainers.add_column("Price", justify="right")
+        gainers.add_column("Move", justify="right")
+        for row in data["gainers"]:
+            gainers.add_row(
+                row["ticker"],
+                money(row["price"]),
+                f"[green]+{percent(row['change_pct'])}[/green]",
+            )
+
+        losers = Table(box=box.ROUNDED, expand=True)
+        losers.add_column("Loser", style="bold red")
+        losers.add_column("Price", justify="right")
+        losers.add_column("Move", justify="right")
+        for row in data["losers"]:
+            losers.add_row(
+                row["ticker"],
+                money(row["price"]),
+                f"[red]{percent(row['change_pct'])}[/red]",
+            )
+
+        grid.add_row(gainers, losers)
+        console.print(
+            Panel(
+                grid,
+                title=f"[bold]{reply.title}[/bold]",
+                subtitle=(
+                    f"{data['positive']} up • "
+                    f"{data['negative']} down • "
+                    f"{data['covered']} covered"
+                ),
+                border_style="blue",
+            )
+        )
+        console.print(Text(data["message"], style="dim"))
+        print_suggestions(reply)
+        return
+
+    if reply.kind == "allocation":
+        table = Table(box=box.ROUNDED, expand=True)
+        table.add_column("Asset", style="bold bright_cyan")
+        table.add_column("Weight", justify="right")
+        table.add_column("Allocation")
+        table.add_column("Value", justify="right")
+
+        for row in reply.data:
+            table.add_row(
+                row["name"],
+                percent(row["weight_pct"]),
+                allocation_bar(row["weight_pct"]),
+                money(row["value"]),
+            )
+
+        console.print(
+            Panel(
+                table,
+                title=f"[bold]{reply.title}[/bold]",
+                border_style="bright_cyan",
+            )
+        )
+        print_suggestions(reply)
+        return
+
+    if reply.kind == "equity":
+        points = reply.data["points"]
+        values = [row["equity"] for row in points]
+
+        if values:
+            first = values[0]
+            last = values[-1]
+            style = "green" if last >= first else "red"
+            body = (
+                f"[{style}]{sparkline(values, width=55)}[/{style}]\n\n"
+                f"{points[0]['label']}  {money(first)}"
+                f"  →  [bold]{money(last)}[/bold]  "
+                f"{points[-1]['label']}"
+            )
+        else:
+            style = "yellow"
+            body = "No equity history is available."
+
+        console.print(
+            Panel(
+                body,
+                title=f"[bold]{reply.title}[/bold]",
+                subtitle=reply.text,
+                border_style=style,
+                padding=(1, 2),
+            )
+        )
+        console.print(Text(reply.data["message"], style="dim"))
         print_suggestions(reply)
         return
 
